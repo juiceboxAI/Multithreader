@@ -1,0 +1,13 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <g id="multithreader-gem">
+    <polygon points="32,4 58,18 58,46 32,60 6,46 6,18" fill="#990000" stroke="#660000" stroke-width="2"/>
+    
+    <polygon points="32,6 56,19 32,32 8,19" fill="#ff4d4d" opacity="0.4"/>
+    <polygon points="8,21 31,33 31,57 7,45" fill="#ff3333" opacity="0.3"/>
+    <polygon points="56,21 57,45 33,57 33,33" fill="#ff3333" opacity="0.3"/>
+    
+    <path d="M32,42 L32,52 M32,42 L18,36 L18,22 M32,42 L46,36 L46,22 M25,26 L25,14 M39,26 L39,14" 
+          stroke="#ffffff" stroke-width="3" stroke-linecap="round" fill="none" opacity="0.9"/>
+    <circle cx="32" cy="32" r="3" fill="#ffffff"/>
+  </g>
+</svg>

@@ -1,0 +1,19 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <g id="data-sheet-gem">
+    <rect x="6" y="6" width="52" height="52" rx="4" fill="#990000" stroke="#660000" stroke-width="2"/>
+    
+    <polygon points="6,6 58,6 50,14 14,14" fill="#ff6666" opacity="0.4"/>
+    <polygon points="6,6 6,58 14,50 14,14" fill="#ff4d4d" opacity="0.3"/>
+    <polygon points="58,58 50,50 14,50 6,58" fill="#ff3333" opacity="0.3"/>
+    <polygon points="58,58 58,6 50,14 50,50" fill="#ff3333" opacity="0.2"/>
+
+    <g stroke="#ffffff" stroke-width="2" opacity="0.9">
+        <rect x="18" y="18" width="28" height="28" fill="none"/>
+        <line x1="18" y1="27" x2="46" y2="27"/>
+        <line x1="18" y1="37" x2="46" y2="37"/>
+        <line x1="27" y1="18" x2="27" y2="46"/>
+        <line x1="37" y1="18" x2="37" y2="46"/>
+        <rect x="19" y="19" width="7" height="7" fill="#ffffff" opacity="0.5" stroke="none"/>
+    </g>
+  </g>
+</svg>

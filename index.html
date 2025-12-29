@@ -1,0 +1,477 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>[MULTI]THREADER</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="icon" type="image/svg+xml" href="assets/page.svg" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app view-split" id="app">
+      <header class="topbar">
+        <div class="top-left">
+          <div class="page-settings">
+            <button
+              class="icon-btn square has-icon"
+              id="pageSettingsToggle"
+              title="Page settings"
+            >
+              <img src="assets/page.svg" alt="Page" />
+            </button>
+            <div class="page-popover" id="pageSettingsPanel">
+              <div class="popover-section">
+                <div class="section-title">View</div>
+                <div class="view-controls">
+                  <button class="pill active" data-view="split">All (A)</button>
+                  <button class="pill" data-view="journal">Scheme (S)</button>
+                  <button class="pill" data-view="sheet">Data (D)</button>
+                  <button class="pill" id="swapPanels">Swap (X)</button>
+                </div>
+              </div>
+              <div class="popover-section">
+                <div class="section-title">Export</div>
+                <div class="export-controls">
+                  <button class="pill" id="exportTxt">Export TXT</button>
+                  <button class="pill" id="exportCsv">Export CSV</button>
+                  <button class="pill" id="exportBoth">Export Both</button>
+                  <button class="pill" id="exportZip">Export ZIP</button>
+                </div>
+              </div>
+              <div class="popover-section">
+                <div class="section-title">Print</div>
+                <div class="print-controls">
+                  <select id="printMode">
+                    <option value="split">Print split (landscape)</option>
+                    <option value="pages">Print separate pages</option>
+                  </select>
+                  <button class="pill" id="printPdf">Print PDF</button>
+                </div>
+              </div>
+              <div class="popover-section">
+                <div class="section-title">More</div>
+                <div class="more-controls">
+                  <button class="ghost" id="importCsv">Import CSV</button>
+                  <button class="ghost" id="exportBundle">Export bundle</button>
+                  <button class="ghost" id="toggleZen">Zen mode (Z)</button>
+                  <button class="ghost danger" id="openHelp">Help me</button>
+                </div>
+              </div>
+              <div class="popover-section">
+                <div class="section-title">Cache</div>
+                <div class="cache-controls">
+                  <button class="ghost" id="setCacheLocation">
+                    Set cache location
+                  </button>
+                  <button class="ghost" id="viewCache">View cache</button>
+                  <button class="ghost" id="backupCache">Backup</button>
+                  <button class="ghost" id="restoreBackup">Restore backup</button>
+                  <button class="ghost danger" id="clearCache">
+                    Clear cache
+                  </button>
+                </div>
+                <div class="cache-note" id="cacheLocationLabel">
+                  <span id="cacheLocationText">Cache: Local storage</span>
+                  <button
+                    class="cache-link"
+                    id="cacheLocationLink"
+                    type="button"
+                  >
+                    Open location
+                  </button>
+                </div>
+              </div>
+              <div class="autosave">Autosave on</div>
+            </div>
+          </div>
+          <div class="brand">
+            <div class="title">[MULTI]THREADER</div>
+            <div class="tagline">#Runtime:Optimized</div>
+          </div>
+        </div>
+        <div class="thread-actions">
+          <div class="break-timer">
+            <button class="ghost break-btn" id="breakTimerBtn">Break</button>
+            <div class="break-popover" id="breakTimerPanel">
+              <div class="break-row">
+                <label>Timer</label>
+                <div class="break-inputs">
+                  <input
+                    id="breakHours"
+                    type="number"
+                    min="0"
+                    max="23"
+                    value="0"
+                    aria-label="Break hours"
+                  />
+                  <span>:</span>
+                  <input
+                    id="breakMinutes"
+                    type="number"
+                    min="0"
+                    max="59"
+                    value="30"
+                    aria-label="Break minutes"
+                  />
+                </div>
+              </div>
+              <div class="break-row break-quick">
+                <button class="pill" type="button" data-minutes="30">
+                  30m
+                </button>
+                <button class="pill" type="button" data-minutes="60">
+                  60m
+                </button>
+                <button class="pill" type="button" data-minutes="90">
+                  90m
+                </button>
+              </div>
+              <div class="break-row break-actions">
+                <button class="pill" id="breakStart" type="button">
+                  Start
+                </button>
+                <button class="ghost" id="breakPause" type="button">
+                  Pause
+                </button>
+                <button class="ghost" id="breakReset" type="button">
+                  Reset
+                </button>
+              </div>
+              <div class="break-remaining" id="breakRemaining">00:30:00</div>
+            </div>
+          </div>
+          <button class="ghost" id="newThread">New thread</button>
+          <button class="ghost" id="renameThread">Rename</button>
+          <button class="ghost" id="deleteThread">Delete</button>
+        </div>
+      </header>
+
+      <div class="tabs" id="threadTabs"></div>
+
+      <input type="file" id="csvFileInput" accept=".csv,text/csv" hidden />
+      <input type="file" id="backupFileInput" accept=".json,application/json" hidden />
+
+      <main class="panels">
+        <section class="panel journal-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <div class="panel-tool-rail">
+                <button
+                  class="icon-btn has-icon"
+                  id="schemeSettingsToggle"
+                  title="Scheme settings"
+                >
+                  <img src="assets/scheme.svg" alt="Scheme" />
+                </button>
+              </div>
+              <div>
+                <h2>Scheme</h2>
+              </div>
+            </div>
+            <div class="panel-actions">
+              <button class="panel-status action" id="copyScheme">Copy</button>
+              <button class="panel-status action" id="clearScheme">
+                Clear
+              </button>
+              <div class="panel-status" id="journalStatus">Ready</div>
+            </div>
+          </div>
+
+          <div class="panel-popover" id="schemePopover">
+            <div class="panel-controls">
+              <div class="control-group inline">
+                <label for="journalFont">Font</label>
+                <select id="journalFont">
+                  <option value="space">Space Grotesk</option>
+                  <option value="mono">JetBrains Mono</option>
+                </select>
+              </div>
+              <div class="control-group inline">
+                <label for="journalSize">Size</label>
+                <input
+                  id="journalSize"
+                  type="range"
+                  min="12"
+                  max="24"
+                  value="16"
+                />
+              </div>
+              <div class="control-group inline">
+                <label for="journalColor">Color</label>
+                <input id="journalColor" type="color" value="#d9dde7" />
+              </div>
+              <div class="control-group buttons">
+                <button class="pill" id="journalUndo">Undo</button>
+                <button class="pill" id="journalFind">Find</button>
+                <button class="pill" id="journalTimestamp">Timestamp</button>
+              </div>
+            </div>
+          </div>
+
+          <textarea
+            id="journal"
+            spellcheck="true"
+            placeholder="Start writing..."
+          ></textarea>
+
+          <div class="journal-meta">
+            <div>Words: <span id="wordCount">0</span></div>
+            <div>Chars: <span id="charCount">0</span></div>
+            <div>Tokens (est): <span id="tokenCount">0</span></div>
+          </div>
+
+          <div class="find-panel" id="findPanel">
+            <div class="find-header" id="findHeader">
+              <div class="find-title">Find/Replace</div>
+              <div class="find-targets" role="group" aria-label="Find target">
+                <button
+                  class="pill small"
+                  type="button"
+                  data-find-target="journal"
+                >
+                  Scheme
+                </button>
+                <button
+                  class="pill small"
+                  type="button"
+                  data-find-target="sheet"
+                >
+                  Data
+                </button>
+                <button
+                  class="pill small"
+                  type="button"
+                  data-find-target="both"
+                >
+                  Both
+                </button>
+              </div>
+              <button class="ghost small" id="closeFind" type="button">
+                Close
+              </button>
+            </div>
+            <div class="find-row">
+              <label for="findInput">Find</label>
+              <input id="findInput" type="text" />
+              <label class="checkbox">
+                <input id="matchCase" type="checkbox" />
+                Match case
+              </label>
+            </div>
+            <div class="find-row">
+              <label for="replaceInput">Replace</label>
+              <input id="replaceInput" type="text" />
+            </div>
+            <div class="find-actions">
+              <button class="pill" id="findNext">Find next</button>
+              <button class="pill" id="replaceOne">Replace</button>
+              <button class="pill" id="replaceAll">Replace all</button>
+            </div>
+          </div>
+        </section>
+
+        <div class="divider" id="panelDivider" aria-hidden="true"></div>
+
+        <section class="panel sheet-panel">
+          <div class="panel-header">
+            <div class="panel-title">
+              <div class="panel-tool-rail">
+                <button
+                  class="icon-btn has-icon"
+                  id="dataOptionsToggle"
+                  title="Data options"
+                >
+                  <img src="assets/data.svg" alt="Data" />
+                </button>
+              </div>
+              <div>
+                <h2>Data</h2>
+              </div>
+            </div>
+            <div class="panel-actions">
+              <button class="panel-status action" id="copyCsv">Copy CSV</button>
+              <button class="panel-status action" id="clearSheet">Clear</button>
+              <div class="panel-status" id="sheetStatus">Idle</div>
+            </div>
+          </div>
+
+          <div class="panel-popover" id="dataOptionsPopover">
+            <div class="panel-controls">
+              <div class="control-group inline">
+                <label for="sheetFont">Font</label>
+                <select id="sheetFont">
+                  <option value="space">Space Grotesk</option>
+                  <option value="mono">JetBrains Mono</option>
+                </select>
+              </div>
+              <div class="control-group inline">
+                <label for="sheetSize">Size</label>
+                <input
+                  id="sheetSize"
+                  type="range"
+                  min="12"
+                  max="20"
+                  value="14"
+                />
+              </div>
+              <div class="control-group inline">
+                <label for="sheetColor">Color</label>
+                <input id="sheetColor" type="color" value="#d9dde7" />
+              </div>
+              <div class="control-group buttons">
+                <button class="pill" id="sheetUndo">Undo</button>
+                <button class="pill" id="sheetFind">Find</button>
+                <button class="pill" id="addRow">Add row</button>
+                <button class="pill" id="addCol">Add col</button>
+                <button class="pill" id="removeRow">Remove row</button>
+                <button class="pill" id="removeCol">Remove col</button>
+              </div>
+              <div class="control-group inline">
+                <label for="sortColumn">Sort table by column</label>
+                <select id="sortColumn"></select>
+                <select id="sortOrder">
+                  <option value="asc">Ascending</option>
+                  <option value="desc">Descending</option>
+                </select>
+                <button class="pill" id="sortApply">Apply</button>
+              </div>
+              <div class="control-group inline">
+                <label for="shadeColor">Shade</label>
+                <input id="shadeColor" type="color" value="#1a2431" />
+                <button class="pill" id="applyShade">Apply</button>
+                <button class="pill" id="clearShade">Clear</button>
+              </div>
+              <div class="control-group inline">
+                <label>Align</label>
+                <button class="pill" id="alignLeft">Left</button>
+                <button class="pill" id="alignCenter">Center</button>
+                <button class="pill" id="alignRight">Right</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="formula-bar">
+            <div class="cell-label" id="cellLabel">A1</div>
+            <input
+              id="formulaInput"
+              type="text"
+              placeholder="Enter value or formula (e.g. =SUM(A1:A3))"
+            />
+          </div>
+
+          <div class="sheet-wrapper" id="sheetWrapper">
+            <table id="sheetTable"></table>
+          </div>
+        </section>
+      </main>
+
+      <footer class="footer-credit">
+        <a href="https://github.com/juiceboxAI" target="_blank" rel="noopener"
+          >DESIGNED BY JUICEBOXAI - 2025</a
+        >
+      </footer>
+    </div>
+
+    <div class="modal" id="renameModal" aria-hidden="true">
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="renameTitle"
+      >
+        <div class="modal-title" id="renameTitle">Rename thread</div>
+        <label for="renameInput">Name</label>
+        <input id="renameInput" type="text" autocomplete="off" />
+        <div class="modal-row">
+          <label for="renameColor">Tab color</label>
+          <div class="modal-color">
+            <input id="renameColor" type="color" value="#4fd1c5" />
+            <button class="ghost small" id="clearRenameColor" type="button">
+              Clear
+            </button>
+          </div>
+        </div>
+        <div class="modal-actions">
+          <button class="ghost" id="cancelRename" type="button">Cancel</button>
+          <button class="pill" id="confirmRename" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="breakAlarmModal" aria-hidden="true">
+      <div
+        class="modal-card break-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="breakAlarmTitle"
+      >
+        <div class="modal-title" id="breakAlarmTitle">Break time</div>
+        <div class="break-alarm-text">Step away for a moment.</div>
+        <div class="modal-actions">
+          <button class="ghost" id="breakSnooze" type="button">
+            Snooze 10m
+          </button>
+          <button class="pill" id="breakDismiss" type="button">Dismiss</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="context-menu" id="sheetContextMenu" aria-hidden="true">
+      <button class="context-item" type="button" data-action="insert-row-above">
+        Insert row above
+      </button>
+      <button class="context-item" type="button" data-action="insert-row-below">
+        Insert row below
+      </button>
+      <button class="context-item" type="button" data-action="remove-row">
+        Remove row
+      </button>
+      <button class="context-item" type="button" data-action="insert-col-left">
+        Insert column left
+      </button>
+      <button class="context-item" type="button" data-action="insert-col-right">
+        Insert column right
+      </button>
+      <button class="context-item" type="button" data-action="remove-col">
+        Remove column
+      </button>
+    </div>
+
+    <div class="context-menu" id="tabsContextMenu" aria-hidden="true">
+      <button class="context-item" type="button" data-action="add-thread">
+        New thread
+      </button>
+      <button
+        class="context-item danger"
+        type="button"
+        data-action="delete-thread"
+      >
+        Delete thread
+      </button>
+    </div>
+
+    <div class="modal" id="cacheViewModal" aria-hidden="true">
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cacheViewTitle"
+      >
+        <div class="modal-title" id="cacheViewTitle">Cache view</div>
+        <pre class="cache-view" id="cacheViewContent">Loading...</pre>
+        <div class="modal-actions">
+          <button class="pill" id="closeCacheView" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="vendor/jszip.min.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
