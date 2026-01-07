@@ -59,6 +59,7 @@
                 <div class="more-controls">
                   <button class="ghost" id="importCsv">Import CSV</button>
                   <button class="ghost" id="exportBundle">Export bundle</button>
+                  <button class="ghost" id="openDiagnostics">Diagnostics</button>
                   <button class="ghost" id="toggleZen">Zen mode (Z)</button>
                   <button class="ghost danger" id="openHelp">Help me</button>
                 </div>
@@ -443,6 +444,102 @@
       </button>
     </div>
 
+        <div class="context-menu" id="cellContextMenu" aria-hidden="true">
+      <button class="context-item has-submenu" type="button" data-submenu="cellEditMenu">
+        Edit
+      </button>
+      <button class="context-item has-submenu" type="button" data-submenu="cellAlignMenu">
+        Align
+      </button>
+      <button class="context-item has-submenu" type="button" data-submenu="cellOptionsMenu">
+        Cell
+      </button>
+      <button class="context-item has-submenu" type="button" data-submenu="cellFormulaMenu">
+        Formula
+      </button>
+    </div>
+
+    <div class="context-submenu" id="cellEditMenu" aria-hidden="true">
+      <button class="context-item" type="button" data-action="copy">
+        Copy
+      </button>
+      <button class="context-item" type="button" data-action="cut">
+        Cut
+      </button>
+      <button class="context-item" type="button" data-action="paste">
+        Paste
+      </button>
+    </div>
+
+    <div class="context-submenu" id="cellAlignMenu" aria-hidden="true">
+      <button class="context-item" type="button" data-action="align-left">
+        Align left
+      </button>
+      <button class="context-item" type="button" data-action="align-center">
+        Align center
+      </button>
+      <button class="context-item" type="button" data-action="align-right">
+        Align right
+      </button>
+    </div>
+
+    <div class="context-submenu" id="cellOptionsMenu" aria-hidden="true">
+      <div class="context-row">
+        <span>Text color</span>
+        <div class="context-row-actions">
+          <input id="cellTextColor" type="color" value="#d9dde7" />
+          <button class="ghost small" id="clearCellTextColor" type="button">
+            Clear
+          </button>
+        </div>
+      </div>
+      <div class="context-row">
+        <span>Cell color</span>
+        <div class="context-row-actions">
+          <input id="cellBgColor" type="color" value="#1a2431" />
+          <button class="ghost small" id="clearCellBgColor" type="button">
+            Clear
+          </button>
+        </div>
+      </div>
+      <button class="context-item" type="button" data-action="wrap">
+        Wrap
+      </button>
+      <button class="context-item" type="button" data-action="truncate">
+        Truncate
+      </button>
+    </div>
+
+    <div class="context-submenu" id="cellFormulaMenu" aria-hidden="true">
+      <button class="context-item" type="button" data-formula="SUM">SUM</button>
+      <button class="context-item" type="button" data-formula="AVG">AVG</button>
+      <button class="context-item" type="button" data-formula="MIN">MIN</button>
+      <button class="context-item" type="button" data-formula="MAX">MAX</button>
+      <button class="context-item" type="button" data-formula="COUNT">COUNT</button>
+    </div>
+
+<div class="context-menu" id="schemeContextMenu" aria-hidden="true">
+      <button class="context-item" type="button" data-action="copy">
+        Copy
+      </button>
+      <button class="context-item" type="button" data-action="cut">
+        Cut
+      </button>
+      <button class="context-item" type="button" data-action="paste">
+        Paste
+      </button>
+      <div class="context-divider" aria-hidden="true"></div>
+      <div class="context-row">
+        <span>Text color</span>
+        <div class="context-row-actions">
+          <input id="schemeTextColor" type="color" value="#d9dde7" />
+          <button class="ghost small" id="clearSchemeTextColor" type="button">
+            Clear
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="context-menu" id="tabsContextMenu" aria-hidden="true">
       <button class="context-item" type="button" data-action="add-thread">
         New thread
@@ -467,6 +564,23 @@
         <pre class="cache-view" id="cacheViewContent">Loading...</pre>
         <div class="modal-actions">
           <button class="pill" id="closeCacheView" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="modal" id="diagnosticsModal" aria-hidden="true">
+      <div
+        class="modal-card"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="diagnosticsTitle"
+      >
+        <div class="modal-title" id="diagnosticsTitle">Diagnostics</div>
+        <pre class="cache-view" id="diagnosticsContent">Loading...</pre>
+        <div class="modal-actions">
+          <button class="pill" id="closeDiagnostics" type="button">
+            Close
+          </button>
         </div>
       </div>
     </div>

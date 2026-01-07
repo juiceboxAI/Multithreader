@@ -32,3 +32,9 @@
 - Scheme: TXT.
 - Data: CSV.
 - Both: ZIP or PDF.
+
+## Tests (Playwright)
+1. Install deps: `npm install`
+2. Install browsers: `npx playwright install`
+3. Run: `npm test`
+

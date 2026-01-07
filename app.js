@@ -59,6 +59,7 @@
   const pageSettingsPanel = document.getElementById("pageSettingsPanel");
   const importCsvBtn = document.getElementById("importCsv");
   const exportBundleBtn = document.getElementById("exportBundle");
+  const openDiagnosticsBtn = document.getElementById("openDiagnostics");
   const toggleZenBtn = document.getElementById("toggleZen");
   const csvFileInput = document.getElementById("csvFileInput");
   const backupFileInput = document.getElementById("backupFileInput");
@@ -138,12 +139,27 @@
   const renameColorInput = document.getElementById("renameColor");
   const clearRenameColorBtn = document.getElementById("clearRenameColor");
   const sheetContextMenu = document.getElementById("sheetContextMenu");
+  const cellContextMenu = document.getElementById("cellContextMenu");
+  const cellEditMenu = document.getElementById("cellEditMenu");
+  const cellAlignMenu = document.getElementById("cellAlignMenu");
+  const cellOptionsMenu = document.getElementById("cellOptionsMenu");
+  const cellFormulaMenu = document.getElementById("cellFormulaMenu");
+  const cellTextColorInput = document.getElementById("cellTextColor");
+  const clearCellTextColorBtn = document.getElementById("clearCellTextColor");
+  const cellBgColorInput = document.getElementById("cellBgColor");
+  const clearCellBgColorBtn = document.getElementById("clearCellBgColor");
+  const schemeContextMenu = document.getElementById("schemeContextMenu");
+  const schemeTextColorInput = document.getElementById("schemeTextColor");
+  const clearSchemeTextColorBtn = document.getElementById("clearSchemeTextColor");
   const tabsContextMenu = document.getElementById("tabsContextMenu");
   const cancelRenameBtn = document.getElementById("cancelRename");
   const confirmRenameBtn = document.getElementById("confirmRename");
   const cacheViewModal = document.getElementById("cacheViewModal");
   const cacheViewContent = document.getElementById("cacheViewContent");
   const closeCacheViewBtn = document.getElementById("closeCacheView");
+  const diagnosticsModal = document.getElementById("diagnosticsModal");
+  const diagnosticsContent = document.getElementById("diagnosticsContent");
+  const closeDiagnosticsBtn = document.getElementById("closeDiagnostics");
 
   const journalUndoStacks = new Map();
   const journalLast = new Map();
@@ -160,6 +176,7 @@
   let saveTimer = null;
   let sheetInputs = [];
   let sheetInputList = [];
+  let sheetEditSession = null;
   let dragState = null;
   let resizeActive = false;
   let columnResize = null;
@@ -178,9 +195,19 @@
   let cacheHandlePromise = null;
   let breakTickTimer = null;
   let breakReminderTimer = null;
+  let focusStartAt = null;
+  let accumulatedFocusMs = 0;
+  let reminderStage = 0;
+  let reminderPaused = false;
   let breakAlarmActive = false;
   let contextMenuTarget = null;
+  let cellContextTarget = null;
+  let cellContextPosition = null;
+  let activeCellSubmenu = null;
+  let activeCellSubmenuTrigger = null;
+  let schemeContextActive = false;
   let tabsContextTargetId = null;
+  let lastSheetCopy = null;
   let sheetFindPointer = null;
   let sheetFindLastQuery = "";
   let lastActivePanel = "journal";
@@ -249,7 +276,7 @@
     for (let r = 0; r < rows; r += 1) {
       const row = [];
       for (let c = 0; c < cols; c += 1) {
-        row.push({ value: "", bg: "", align: "left" });
+        row.push({ value: "", bg: "", align: "left", fg: "", wrap: "truncate" });
       }
       cells.push(row);
     }
@@ -271,13 +298,15 @@
         if (typeof cell.value !== "string") cell.value = "";
         if (typeof cell.bg !== "string") cell.bg = "";
         if (typeof cell.align !== "string") cell.align = "left";
+        if (typeof cell.fg !== "string") cell.fg = "";
+        if (typeof cell.wrap !== "string") cell.wrap = "truncate";
       });
     });
     if (sheet.rows < DEFAULT_ROWS) {
       for (let r = sheet.rows; r < DEFAULT_ROWS; r += 1) {
         const row = [];
         for (let c = 0; c < sheet.cols; c += 1) {
-          row.push({ value: "", bg: "", align: "left" });
+          row.push({ value: "", bg: "", align: "left", fg: "", wrap: "truncate" });
         }
         sheet.cells.push(row);
       }
@@ -380,12 +409,9 @@
       label.className = "tab-label";
       label.textContent = thread.name;
       btn.appendChild(label);
+      btn.style.removeProperty("--tab-dot-color");
       if (thread.color) {
-        btn.style.setProperty("--tab-accent", thread.color);
-        btn.classList.add("has-accent");
-      } else {
-        btn.style.removeProperty("--tab-accent");
-        btn.classList.remove("has-accent");
+        btn.style.setProperty("--tab-dot-color", thread.color);
       }
       btn.draggable = true;
       btn.addEventListener("click", () => {
@@ -694,6 +720,7 @@
     closePanelPopovers();
     closeBreakTimerPanel();
     closeSheetContextMenu();
+    closeCellSubmenus();
     closeTabsContextMenu();
     closeCacheViewModal();
     scheduleSave();
@@ -849,8 +876,12 @@
       closePanelPopovers();
       closeBreakTimerPanel();
       closeSheetContextMenu();
+      closeCellContextMenu();
+      closeCellSubmenus();
+      closeSchemeContextMenu();
       closeTabsContextMenu();
       closeCacheViewModal();
+      closeDiagnosticsModal();
     });
 
     if (pageSettingsToggle) {
@@ -895,6 +926,12 @@
     if (exportBundleBtn) {
       exportBundleBtn.addEventListener("click", () => {
         exportBundle();
+        closePageSettings();
+      });
+    }
+    if (openDiagnosticsBtn) {
+      openDiagnosticsBtn.addEventListener("click", () => {
+        openDiagnosticsModal();
         closePageSettings();
       });
     }
@@ -964,6 +1001,7 @@
     window.addEventListener("pointercancel", handlePointerUp);
     window.addEventListener("resize", applySplitRatio);
     window.addEventListener("resize", syncTitleTaglineWidth);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     if (sheetPanel) {
       sheetPanel.addEventListener("dragover", handleSheetDragOver);
@@ -982,6 +1020,59 @@
         handleSheetContextAction(item.dataset.action);
       });
       sheetContextMenu.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+      });
+    }
+    if (cellContextMenu) {
+      cellContextMenu.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const item = event.target.closest(".context-item");
+        if (!item || item.disabled) return;
+        const submenuId = item.dataset.submenu;
+        if (submenuId) {
+          openCellSubmenu(item);
+          return;
+        }
+        if (item.dataset.action) {
+          handleCellContextAction(item.dataset.action);
+        }
+      });
+      cellContextMenu.addEventListener("pointerover", (event) => {
+        const item = event.target.closest(".context-item.has-submenu");
+        if (!item || item.disabled) return;
+        openCellSubmenu(item);
+      });
+      cellContextMenu.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+      });
+    }
+    [cellEditMenu, cellAlignMenu, cellOptionsMenu, cellFormulaMenu].forEach((menu) => {
+      if (!menu) return;
+      menu.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const item = event.target.closest(".context-item");
+        if (!item || item.disabled) return;
+        if (item.dataset.action) {
+          handleCellContextAction(item.dataset.action);
+          return;
+        }
+        if (item.dataset.formula) {
+          addFormulaAtSelection(item.dataset.formula);
+          closeCellContextMenu();
+        }
+      });
+      menu.addEventListener("contextmenu", (event) => {
+        event.preventDefault();
+      });
+    });
+    if (schemeContextMenu) {
+      schemeContextMenu.addEventListener("click", (event) => {
+        event.stopPropagation();
+        const item = event.target.closest(".context-item");
+        if (!item || item.disabled) return;
+        handleSchemeContextAction(item.dataset.action);
+      });
+      schemeContextMenu.addEventListener("contextmenu", (event) => {
         event.preventDefault();
       });
     }
@@ -1096,6 +1187,17 @@
     if (closeCacheViewBtn) {
       closeCacheViewBtn.addEventListener("click", () => closeCacheViewModal());
     }
+    if (diagnosticsModal) {
+      diagnosticsModal.addEventListener("click", (event) => {
+        if (event.target === diagnosticsModal) {
+          closeDiagnosticsModal();
+        }
+        event.stopPropagation();
+      });
+    }
+    if (closeDiagnosticsBtn) {
+      closeDiagnosticsBtn.addEventListener("click", () => closeDiagnosticsModal());
+    }
     if (renameInput) {
       renameInput.addEventListener("keydown", (event) => {
         if (event.key === "Enter") {
@@ -1106,6 +1208,54 @@
           event.preventDefault();
           closeRenameModal();
         }
+      });
+    }
+    if (cellTextColorInput) {
+      cellTextColorInput.addEventListener("input", () => {
+        applyTextColor(cellTextColorInput.value);
+      });
+      cellTextColorInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          applyTextColor(cellTextColorInput.value);
+        }
+      });
+    }
+    if (clearCellTextColorBtn) {
+      clearCellTextColorBtn.addEventListener("click", () => {
+        applyTextColor("");
+      });
+    }
+    if (cellBgColorInput) {
+      cellBgColorInput.addEventListener("input", () => {
+        applyShade(cellBgColorInput.value);
+      });
+      cellBgColorInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          applyShade(cellBgColorInput.value);
+        }
+      });
+    }
+    if (clearCellBgColorBtn) {
+      clearCellBgColorBtn.addEventListener("click", () => {
+        applyShade("");
+      });
+    }
+    if (schemeTextColorInput) {
+      schemeTextColorInput.addEventListener("input", () => {
+        updateSettings("journalColor", schemeTextColorInput.value);
+      });
+      schemeTextColorInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          updateSettings("journalColor", schemeTextColorInput.value);
+        }
+      });
+    }
+    if (clearSchemeTextColorBtn) {
+      clearSchemeTextColorBtn.addEventListener("click", () => {
+        updateSettings("journalColor", "#d9dde7");
       });
     }
     if (renameColorInput) {
@@ -1189,6 +1339,10 @@
       const text = (event.clipboardData || window.clipboardData).getData("text");
       insertAtCursor(journalEl, text);
       journalEl.dispatchEvent(new Event("input"));
+    });
+
+    journalEl.addEventListener("contextmenu", (event) => {
+      openSchemeContextMenu(event);
     });
 
     journalUndoBtn.addEventListener("click", () => {
@@ -1317,12 +1471,13 @@
         const thread = getActiveThread();
         if (!thread) return;
         commitCellValue(thread, selectedCell.row, selectedCell.col, formulaInput.value, true);
-        focusCell(selectedCell.row, selectedCell.col);
+        moveSelectionBy(1, 0, event.shiftKey);
       }
     });
 
     formulaInput.addEventListener("focus", () => {
       lastActivePanel = "sheet";
+      startSheetEditSession(selectedCell.row, selectedCell.col);
     });
 
     formulaInput.addEventListener("blur", () => {
@@ -1411,6 +1566,7 @@
     closePageSettings();
     closeBreakTimerPanel();
     closeSheetContextMenu();
+    closeCellSubmenus();
     closeTabsContextMenu();
     closeCacheViewModal();
     if (!isOpen) {
@@ -1434,6 +1590,7 @@
     closePanelPopovers();
     closeBreakTimerPanel();
     closeSheetContextMenu();
+    closeCellSubmenus();
     closeTabsContextMenu();
     closeCacheViewModal();
     findPanel.classList.add("open");
@@ -1513,9 +1670,13 @@
       closePanelPopovers();
       closeBreakTimerPanel();
       closeSheetContextMenu();
+      closeCellContextMenu();
+      closeCellSubmenus();
+      closeSchemeContextMenu();
       closeTabsContextMenu();
       closeRenameModal();
       closeCacheViewModal();
+      closeDiagnosticsModal();
       closeFindPanel();
       dismissBreakAlarm();
       if (state.ui.zen) setZen(false);
@@ -1597,6 +1758,7 @@
     closePanelPopovers();
     closeBreakTimerPanel();
     closeSheetContextMenu();
+    closeCellSubmenus();
     closeTabsContextMenu();
     closeCacheViewModal();
     pageSettingsPanel.classList.toggle("open");
@@ -1762,6 +1924,38 @@
     cacheViewModal.setAttribute("aria-hidden", "true");
   }
 
+  function openDiagnosticsModal() {
+    if (!diagnosticsModal || !diagnosticsContent) return;
+    diagnosticsModal.classList.add("open");
+    diagnosticsModal.setAttribute("aria-hidden", "false");
+    diagnosticsContent.textContent = buildDiagnosticsReport();
+  }
+
+  function closeDiagnosticsModal() {
+    if (!diagnosticsModal) return;
+    diagnosticsModal.classList.remove("open");
+    diagnosticsModal.setAttribute("aria-hidden", "true");
+  }
+
+  function buildDiagnosticsReport() {
+    const threadCount = state.threads.length;
+    const totalCells = state.threads.reduce((sum, thread) => {
+      if (!thread.sheet) return sum;
+      return sum + thread.sheet.rows * thread.sheet.cols;
+    }, 0);
+    const lines = [];
+    lines.push(`Threads: ${threadCount}`);
+    lines.push(`Total cells: ${totalCells}`);
+    lines.push(`Active timers: breakTick=${breakTickTimer ? "on" : "off"}, breakReminder=${breakReminderTimer ? "on" : "off"}`);
+    lines.push("Undo stacks:");
+    state.threads.forEach((thread) => {
+      const journalCount = (journalUndoStacks.get(thread.id) || []).length;
+      const sheetCount = (sheetUndoStacks.get(thread.id) || []).length;
+      lines.push(`- ${thread.name}: journal=${journalCount}, sheet=${sheetCount}`);
+    });
+    return lines.join("\n");
+  }
+
   async function loadCacheViewContent() {
     if (!cacheViewContent) return;
     let text = "";
@@ -1838,6 +2032,7 @@
     closePanelPopovers();
     closeBreakTimerPanel();
     closeSheetContextMenu();
+    closeCellSubmenus();
     closeCacheViewModal();
     updateTabsContextMenu();
     tabsContextMenu.classList.add("open");
@@ -1927,7 +2122,7 @@
     }
     setBreakInputs(timer.lastSetSeconds);
     updateBreakDisplay();
-    startBreakReminder();
+    initBreakReminder();
   }
 
   function toggleBreakTimerPanel() {
@@ -1936,6 +2131,7 @@
     closePageSettings();
     closePanelPopovers();
     closeSheetContextMenu();
+    closeCellSubmenus();
     if (isOpen) {
       closeBreakTimerPanel();
       return;
@@ -1999,6 +2195,7 @@
     timer.endAt = Date.now() + seconds * 1000;
     startBreakTicker();
     updateBreakDisplay();
+    setReminderPaused(true, true);
     scheduleSave();
   }
 
@@ -2011,6 +2208,7 @@
     timer.endAt = 0;
     stopBreakTicker();
     updateBreakDisplay();
+    setReminderPaused(false, true);
     scheduleSave();
   }
 
@@ -2022,6 +2220,7 @@
     timer.remainingSeconds = timer.lastSetSeconds;
     stopBreakTicker();
     updateBreakDisplay();
+    setReminderPaused(false, true);
     scheduleSave();
   }
 
@@ -2079,14 +2278,105 @@
     return `${hh}:${mm}:${ss}`;
   }
 
+  function initBreakReminder() {
+    stopBreakReminder();
+    resetBreakReminderState();
+    reminderPaused = !!(state.ui.breakTimer && state.ui.breakTimer.running);
+    if (!reminderPaused && document.visibilityState === "visible") {
+      focusStartAt = Date.now();
+    }
+    startBreakReminder();
+  }
+
   function startBreakReminder() {
     if (!breakTimerBtn) return;
     if (breakReminderTimer) {
       clearInterval(breakReminderTimer);
     }
     breakReminderTimer = setInterval(() => {
-      pulseBreakButton();
-    }, 30 * 60 * 1000);
+      updateBreakReminder();
+    }, 60 * 1000);
+    updateBreakReminder(true);
+  }
+
+  function stopBreakReminder() {
+    if (!breakReminderTimer) return;
+    clearInterval(breakReminderTimer);
+    breakReminderTimer = null;
+  }
+
+  function resetBreakReminderState() {
+    reminderStage = 0;
+    accumulatedFocusMs = 0;
+    focusStartAt = null;
+    updateBreakReminderClasses(0);
+  }
+
+  function updateBreakReminder(forcePulse = false) {
+    if (!breakTimerBtn || reminderPaused) return;
+    const minutes = Math.floor(getFocusedElapsedMs() / 60000);
+    let stage = 0;
+    if (minutes >= 120) stage = 120;
+    else if (minutes >= 90) stage = 90;
+    else if (minutes >= 60) stage = 60;
+    else if (minutes >= 30) stage = 30;
+    if (stage !== reminderStage || forcePulse) {
+      reminderStage = stage;
+      updateBreakReminderClasses(stage);
+      if (stage === 30 || stage === 60 || stage === 90) {
+        pulseBreakButton();
+      }
+    }
+  }
+
+  function updateBreakReminderClasses(stage) {
+    if (!breakTimerBtn) return;
+    breakTimerBtn.classList.remove("reminder-30", "reminder-60", "reminder-90", "reminder-120");
+    if (stage) {
+      breakTimerBtn.classList.add(`reminder-${stage}`);
+    }
+  }
+
+  function getFocusedElapsedMs() {
+    let total = accumulatedFocusMs;
+    if (focusStartAt) {
+      total += Date.now() - focusStartAt;
+    }
+    return total;
+  }
+
+  function setReminderPaused(paused, reset = false) {
+    if (paused) {
+      if (focusStartAt) {
+        accumulatedFocusMs += Date.now() - focusStartAt;
+        focusStartAt = null;
+      }
+      reminderPaused = true;
+      return;
+    }
+    reminderPaused = false;
+    if (reset) {
+      resetBreakReminderState();
+    }
+    if (document.visibilityState === "visible") {
+      focusStartAt = Date.now();
+    }
+    updateBreakReminder(true);
+  }
+
+  function handleVisibilityChange() {
+    if (reminderPaused) return;
+    if (document.visibilityState === "hidden") {
+      if (focusStartAt) {
+        accumulatedFocusMs += Date.now() - focusStartAt;
+        focusStartAt = null;
+      }
+      return;
+    }
+    if (!focusStartAt) {
+      focusStartAt = Date.now();
+    }
+    updateBreakReminder(true);
   }
 
   function pulseBreakButton() {
@@ -2106,6 +2396,7 @@
     }
     pulseBreakButton();
     playBreakTone();
+    setReminderPaused(false, true);
   }
 
   function dismissBreakAlarm() {
@@ -2167,11 +2458,7 @@
   }
 
   function buildBackupPayload() {
-    return {
-      version: 1,
-      exportedAt: new Date().toISOString(),
-      state
-    };
+    return state;
   }
 
   async function backupState() {
@@ -2437,7 +2724,7 @@
   }
 
   function sheetHasData(sheet) {
-    return sheet.cells.some((row) => row.some((cell) => cell.value || cell.bg));
+    return sheet.cells.some((row) => row.some((cell) => cell.value || cell.bg || cell.fg));
   }
 
   function scheduleJournalUndo(threadId, currentValue) {
@@ -2739,7 +3026,11 @@
       th.dataset.col = String(c);
       th.addEventListener("click", (event) => {
         if (event.target.closest(".col-resizer") || event.target.closest(".add-col")) return;
-        selectColumn(c);
+        if (event.shiftKey) {
+          selectColumnRange(c);
+        } else {
+          selectColumn(c);
+        }
       });
       th.addEventListener("contextmenu", (event) => {
         if (event.target.closest(".col-resizer") || event.target.closest(".add-col")) return;
@@ -2781,7 +3072,11 @@
       rowHeader.className = "sticky-col row-header";
       rowHeader.addEventListener("click", (event) => {
         if (event.target.closest(".row-resizer") || event.target.closest(".add-row")) return;
-        selectRow(r);
+        if (event.shiftKey) {
+          selectRowRange(r);
+        } else {
+          selectRow(r);
+        }
       });
       rowHeader.addEventListener("contextmenu", (event) => {
         if (event.target.closest(".row-resizer") || event.target.closest(".add-row")) return;
@@ -2822,13 +3117,16 @@
         if (Number.isFinite(rowHeight)) {
           td.style.height = `${rowHeight}px`;
         }
-        const input = document.createElement("input");
-        input.type = "text";
+        const input = document.createElement("textarea");
         input.className = "cell-input";
+        input.rows = 1;
+        input.wrap = "off";
+        input.spellcheck = false;
         input.dataset.row = String(r);
         input.dataset.col = String(c);
         input.addEventListener("focus", () => {
           cellEditMode = false;
+          startSheetEditSession(r, c);
           focusCell(r, c);
           input.value = sheet.cells[r][c].value || "";
         });
@@ -2852,13 +3150,46 @@
             input.select();
             return;
           }
+          if (event.key === "Enter" && !event.altKey && !event.shiftKey) {
+            event.preventDefault();
+            const thread = getActiveThread();
+            if (!thread) return;
+            commitCellValue(thread, r, c, input.value, true);
+            moveSelectionBy(1, 0, event.shiftKey);
+            return;
+          }
+          if (!cellEditMode && !event.altKey && !event.ctrlKey && !event.metaKey) {
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              moveSelectionBy(-1, 0, event.shiftKey);
+              return;
+            }
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              moveSelectionBy(1, 0, event.shiftKey);
+              return;
+            }
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              moveSelectionBy(0, -1, event.shiftKey);
+              return;
+            }
+            if (event.key === "ArrowRight") {
+              event.preventDefault();
+              moveSelectionBy(0, 1, event.shiftKey);
+              return;
+            }
+          }
+          if (event.key === "Enter" && (event.altKey || event.shiftKey)) {
+            cellEditMode = true;
+            return;
+          }
           if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) {
             cellEditMode = true;
           }
-          if (event.key === "Enter") {
-            event.preventDefault();
-            input.blur();
-          }
+        });
+        input.addEventListener("contextmenu", (event) => {
+          openCellContextMenu(event, { row: r, col: c });
         });
         input.addEventListener("paste", (event) => {
           event.preventDefault();
@@ -2884,7 +3215,8 @@
     const thread = getActiveThread();
     if (!thread) return;
     const text = (event.clipboardData || window.clipboardData).getData("text");
-    const grid = parseClipboardGrid(text);
+    const forceGrid = event.altKey || isLastSheetCopy(text);
+    const grid = parseClipboardGrid(text, forceGrid);
     if (grid.length === 1 && grid[0].length === 1) {
       commitCellValue(thread, row, col, grid[0][0], true);
       const target = sheetInputs[row] ? sheetInputs[row][col] : null;
@@ -2898,21 +3230,39 @@
     formulaInput.value = thread.sheet.cells[row][col].value || "";
   }
 
-  function parseClipboardGrid(text) {
-    const normalized = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-    if (!normalized.includes("\n") && !normalized.includes("\t")) {
-      return [[normalized]];
-    }
-    if (normalized.includes("\t")) {
-      return normalized.split("\n").map((line) => line.split("\t"));
-    }
-    if (normalized.includes(",")) {
-      return parseCsv(normalized);
-    }
-    return normalized.split("\n").map((line) => [line]);
+  function isLastSheetCopy(text) {
+    return !!(lastSheetCopy && lastSheetCopy.isMulti && lastSheetCopy.text === text);
   }
 
-  function parseCsv(text) {
+  function parseClipboardGrid(text, forceGrid = false) {
+    const normalized = String(text ?? "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    const hasTab = normalized.includes("\t");
+    const hasNewline = normalized.includes("\n");
+    const hasComma = normalized.includes(",");
+
+    if (forceGrid) {
+      if (hasTab) {
+        return normalized.split("\n").map((line) => line.split("\t"));
+      }
+      if (hasComma) {
+        return parseCsv(normalized);
+      }
+      if (hasNewline) {
+        return normalized.split("\n").map((line) => [line]);
+      }
+      return [[normalized]];
+    }
+
+    if (hasTab) {
+      return normalized.split("\n").map((line) => line.split("\t"));
+    }
+    if (hasComma && hasNewline) {
+      return parseCsv(normalized);
+    }
+    return [[normalized]];
+  }
+
+function parseCsv(text) {
     const rows = [];
     let row = [];
     let value = "";
@@ -2985,7 +3335,7 @@
     while (sheet.rows < rowsNeeded) {
       const row = [];
       for (let c = 0; c < sheet.cols; c += 1) {
-        row.push({ value: "", bg: "", align: "left" });
+        row.push({ value: "", bg: "", align: "left", fg: "", wrap: "truncate" });
       }
       sheet.cells.push(row);
       sheet.rows += 1;
@@ -2993,7 +3343,7 @@
       resized = true;
     }
     while (sheet.cols < colsNeeded) {
-      sheet.cells.forEach((row) => row.push({ value: "", bg: "", align: "left" }));
+      sheet.cells.forEach((row) => row.push({ value: "", bg: "", align: "left", fg: "", wrap: "truncate" }));
       sheet.cols += 1;
       if (sheet.colWidths) sheet.colWidths.push(null);
       resized = true;
@@ -3015,6 +3365,17 @@
     buildSheetTable(thread.sheet);
     populateSortColumns(thread.sheet.cols);
     scheduleSave();
+  }
+
+  function startSheetEditSession(row, col) {
+    const thread = getActiveThread();
+    if (!thread) return;
+    sheetEditSession = {
+      threadId: thread.id,
+      row,
+      col,
+      pushed: false
+    };
   }
 
   function focusCell(row, col) {
@@ -3043,6 +3404,21 @@
       const cell = thread.sheet.cells[row][col];
       formulaInput.value = cell.value || "";
     }
+  }
+
+  function moveSelectionBy(deltaRow, deltaCol, extendSelection) {
+    const thread = getActiveThread();
+    if (!thread) return;
+    normalizeSheet(thread.sheet);
+    const nextRow = clamp(selectedCell.row + deltaRow, 0, thread.sheet.rows - 1);
+    const nextCol = clamp(selectedCell.col + deltaCol, 0, thread.sheet.cols - 1);
+    if (extendSelection) {
+      const anchor = selectionAnchor || { row: selectedCell.row, col: selectedCell.col };
+      ignoreFocusSelection = true;
+      selectionAnchor = anchor;
+      setSelectionRange(anchor.row, anchor.col, nextRow, nextCol);
+    }
+    focusCell(nextRow, nextCol);
   }
 
   function setSelectionRange(startRow, startCol, endRow, endCol) {
@@ -3131,16 +3507,32 @@
 
   function commitCellValue(thread, row, col, raw, pushUndo) {
     const cell = thread.sheet.cells[row][col];
+    const sessionMatches =
+      sheetEditSession
+      && sheetEditSession.threadId === thread.id
+      && sheetEditSession.row === row
+      && sheetEditSession.col === col;
     if (raw === cell.value) {
+      if (sessionMatches) {
+        sheetEditSession = null;
+      }
       recalcSheet();
       return;
     }
     if (pushUndo) {
-      pushSheetUndo(thread.id, thread.sheet);
+      if (sessionMatches) {
+        if (!sheetEditSession.pushed) {
+          pushSheetUndo(thread.id, thread.sheet);
+          sheetEditSession.pushed = true;
+        }
+      } else {
+        pushSheetUndo(thread.id, thread.sheet);
+      }
     }
     cell.value = raw;
     recalcSheet();
     scheduleSave();
+    sheetEditSession = null;
   }
 
   function pushSheetUndo(threadId, sheet) {
@@ -3157,7 +3549,9 @@
       cells: sheet.cells.map((row) => row.map((cell) => ({
         value: cell.value,
         bg: cell.bg,
-        align: cell.align || "left"
+        align: cell.align || "left",
+        fg: cell.fg || "",
+        wrap: cell.wrap || "truncate"
       }))),
       colWidths: Array.isArray(sheet.colWidths) ? [...sheet.colWidths] : [],
       rowHeights: Array.isArray(sheet.rowHeights) ? [...sheet.rowHeights] : []
@@ -3177,6 +3571,10 @@
         const cell = sheet.cells[r][c];
         input.style.background = cell.bg || "";
         input.style.textAlign = cell.align || "left";
+        input.style.color = cell.fg || "";
+        input.style.whiteSpace = cell.wrap === "wrap" ? "pre-wrap" : "nowrap";
+        input.style.textOverflow = cell.wrap === "wrap" ? "clip" : "ellipsis";
+        input.wrap = cell.wrap === "wrap" ? "soft" : "off";
         if (document.activeElement === input) {
           continue;
         }
@@ -3399,13 +3797,47 @@
   function applyShade(color) {
     const thread = getActiveThread();
     if (!thread) return;
+    const normalized = normalizeHexColor(color);
+    const nextColor = normalized || "";
     normalizeSheet(thread.sheet);
     pushSheetUndo(thread.id, thread.sheet);
     forEachSelectedCell((row, col) => {
       const cell = thread.sheet.cells[row] && thread.sheet.cells[row][col];
-      if (cell) cell.bg = color;
+      if (cell) cell.bg = nextColor;
     });
     recalcSheet();
+    updateCellContextMenu();
+    scheduleSave();
+  }
+
+  function applyTextColor(color) {
+    const thread = getActiveThread();
+    if (!thread) return;
+    const normalized = normalizeHexColor(color);
+    const nextColor = normalized || "";
+    normalizeSheet(thread.sheet);
+    pushSheetUndo(thread.id, thread.sheet);
+    forEachSelectedCell((row, col) => {
+      const cell = thread.sheet.cells[row] && thread.sheet.cells[row][col];
+      if (cell) cell.fg = nextColor;
+    });
+    recalcSheet();
+    updateCellContextMenu();
+    scheduleSave();
+  }
+
+  function applyWrapMode(mode) {
+    const thread = getActiveThread();
+    if (!thread) return;
+    const nextMode = mode === "wrap" ? "wrap" : "truncate";
+    normalizeSheet(thread.sheet);
+    pushSheetUndo(thread.id, thread.sheet);
+    forEachSelectedCell((row, col) => {
+      const cell = thread.sheet.cells[row] && thread.sheet.cells[row][col];
+      if (cell) cell.wrap = nextMode;
+    });
+    recalcSheet();
+    sheetStatus.textContent = nextMode === "wrap" ? "Wrap" : "Truncate";
     scheduleSave();
   }
 
@@ -3489,6 +3921,8 @@
         cell.value = "";
         cell.bg = "";
         cell.align = "left";
+        cell.fg = "";
+        cell.wrap = "truncate";
       }
     }
     buildSheetTable(thread.sheet);
@@ -3508,6 +3942,19 @@
     selectionAnchor = { row, col: 0 };
   }
 
+  function selectRowRange(row) {
+    const thread = getActiveThread();
+    if (!thread) return;
+    normalizeSheet(thread.sheet);
+    const anchorRow = selectionAnchor ? selectionAnchor.row : selectedCell.row;
+    const lastCol = Math.max(0, thread.sheet.cols - 1);
+    ignoreFocusSelection = true;
+    focusCell(row, 0);
+    setSelectionRange(anchorRow, 0, row, lastCol);
+    selectionAnchor = { row: anchorRow, col: 0 };
+  }
+
+
   function selectColumn(col) {
     const thread = getActiveThread();
     if (!thread) return;
@@ -3518,6 +3965,19 @@
     setSelectionRange(0, col, lastRow, col);
     selectionAnchor = { row: 0, col };
   }
+
+  function selectColumnRange(col) {
+    const thread = getActiveThread();
+    if (!thread) return;
+    normalizeSheet(thread.sheet);
+    const anchorCol = selectionAnchor ? selectionAnchor.col : selectedCell.col;
+    const lastRow = Math.max(0, thread.sheet.rows - 1);
+    ignoreFocusSelection = true;
+    focusCell(0, col);
+    setSelectionRange(0, anchorCol, lastRow, col);
+    selectionAnchor = { row: 0, col: anchorCol };
+  }
+
 
   function selectAllCells() {
     const thread = getActiveThread();
@@ -3539,7 +3999,7 @@
     const clamped = clamp(insertIndex, 0, thread.sheet.rows);
     const row = [];
     for (let c = 0; c < thread.sheet.cols; c += 1) {
-      row.push({ value: "", bg: "", align: "left" });
+      row.push({ value: "", bg: "", align: "left", fg: "", wrap: "truncate" });
     }
     thread.sheet.cells.splice(clamped, 0, row);
     thread.sheet.rows += 1;
@@ -3555,7 +4015,7 @@
     normalizeSheet(thread.sheet);
     pushSheetUndo(thread.id, thread.sheet);
     const clamped = clamp(insertIndex, 0, thread.sheet.cols);
-    thread.sheet.cells.forEach((row) => row.splice(clamped, 0, { value: "", bg: "", align: "left" }));
+    thread.sheet.cells.forEach((row) => row.splice(clamped, 0, { value: "", bg: "", align: "left", fg: "", wrap: "truncate" }));
     thread.sheet.cols += 1;
     if (thread.sheet.colWidths) thread.sheet.colWidths.splice(clamped, 0, null);
     selectedCell = { row: Math.min(selectedCell.row, thread.sheet.rows - 1), col: clamped };
@@ -3612,6 +4072,7 @@
     closePageSettings();
     closePanelPopovers();
     closeBreakTimerPanel();
+    closeCellSubmenus();
     contextMenuTarget = target;
     if (target.type === "row") {
       selectRow(target.index);
@@ -3624,16 +4085,20 @@
     positionSheetContextMenu(event.clientX, event.clientY);
   }
 
-  function positionSheetContextMenu(x, y) {
-    if (!sheetContextMenu) return;
+  function positionContextMenu(menu, x, y) {
+    if (!menu) return;
     const padding = 8;
-    sheetContextMenu.style.left = `${x}px`;
-    sheetContextMenu.style.top = `${y}px`;
-    const rect = sheetContextMenu.getBoundingClientRect();
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    const rect = menu.getBoundingClientRect();
     const clampedX = Math.min(window.innerWidth - rect.width - padding, Math.max(padding, x));
     const clampedY = Math.min(window.innerHeight - rect.height - padding, Math.max(padding, y));
-    sheetContextMenu.style.left = `${clampedX}px`;
-    sheetContextMenu.style.top = `${clampedY}px`;
+    menu.style.left = `${clampedX}px`;
+    menu.style.top = `${clampedY}px`;
+  }
+
+  function positionSheetContextMenu(x, y) {
+    positionContextMenu(sheetContextMenu, x, y);
   }
 
   function updateSheetContextMenu(type) {
@@ -3679,6 +4144,284 @@
       if (action === "remove-col") removeSheetCol(index);
     }
     closeSheetContextMenu();
+  }
+
+  function isCellInSelection(row, col) {
+    const bounds = getSelectionBounds();
+    if (!bounds) {
+      return row === selectedCell.row && col === selectedCell.col;
+    }
+    return row >= bounds.rowStart && row <= bounds.rowEnd && col >= bounds.colStart && col <= bounds.colEnd;
+  }
+
+  function closeCellSubmenus() {
+    [cellEditMenu, cellAlignMenu, cellOptionsMenu, cellFormulaMenu].forEach((menu) => {
+      if (!menu) return;
+      menu.classList.remove("open");
+      menu.setAttribute("aria-hidden", "true");
+    });
+    if (activeCellSubmenuTrigger) {
+      activeCellSubmenuTrigger.classList.remove("submenu-open");
+    }
+    activeCellSubmenu = null;
+    activeCellSubmenuTrigger = null;
+  }
+
+  function openCellSubmenu(trigger) {
+    if (!trigger || !trigger.dataset.submenu) return;
+    const submenu = document.getElementById(trigger.dataset.submenu);
+    if (!submenu) return;
+    if (activeCellSubmenu === submenu && submenu.classList.contains("open")) return;
+    closeCellSubmenus();
+    submenu.classList.add("open");
+    submenu.setAttribute("aria-hidden", "false");
+    activeCellSubmenu = submenu;
+    activeCellSubmenuTrigger = trigger;
+    trigger.classList.add("submenu-open");
+    positionCellSubmenu(submenu, trigger.getBoundingClientRect());
+  }
+
+  function positionCellSubmenu(menu, anchorRect) {
+    if (!menu || !anchorRect) return;
+    const padding = 8;
+    let x = anchorRect.right + 6;
+    let y = anchorRect.top;
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+    const rect = menu.getBoundingClientRect();
+    if (rect.right > window.innerWidth - padding) {
+      x = anchorRect.left - rect.width - 6;
+    }
+    if (rect.left < padding) {
+      x = padding;
+    }
+    if (rect.bottom > window.innerHeight - padding) {
+      y = Math.max(padding, window.innerHeight - rect.height - padding);
+    }
+    if (y < padding) {
+      y = padding;
+    }
+    menu.style.left = `${x}px`;
+    menu.style.top = `${y}px`;
+  }
+
+  function openCellContextMenu(event, target) {
+    if (!cellContextMenu || !target) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closePageSettings();
+    closePanelPopovers();
+    closeBreakTimerPanel();
+    closeSheetContextMenu();
+    closeCellSubmenus();
+    closeTabsContextMenu();
+    closeCacheViewModal();
+    closeDiagnosticsModal();
+    closeSchemeContextMenu();
+    cellContextTarget = target;
+    cellContextPosition = { x: event.clientX, y: event.clientY };
+    const inSelection = isCellInSelection(target.row, target.col);
+    if (inSelection) {
+      ignoreFocusSelection = true;
+    }
+    focusCell(target.row, target.col);
+    updateCellContextMenu();
+    cellContextMenu.classList.add("open");
+    cellContextMenu.setAttribute("aria-hidden", "false");
+    positionContextMenu(cellContextMenu, event.clientX, event.clientY);
+  }
+
+  function updateCellContextMenu() {
+    if (!cellContextMenu) return;
+    const thread = getActiveThread();
+    if (!thread) return;
+    const cell = thread.sheet.cells[selectedCell.row] && thread.sheet.cells[selectedCell.row][selectedCell.col];
+    if (!cell) return;
+    if (cellTextColorInput) {
+      const fg = normalizeHexColor(cell.fg);
+      cellTextColorInput.value = fg || thread.settings.sheetColor;
+      cellTextColorInput.classList.toggle("is-empty", !fg);
+    }
+    if (cellBgColorInput) {
+      const bg = normalizeHexColor(cell.bg);
+      const fallback = shadeColorEl ? shadeColorEl.value : "#1a2431";
+      cellBgColorInput.value = bg || fallback;
+      cellBgColorInput.classList.toggle("is-empty", !bg);
+    }
+    const wrapBtn = cellOptionsMenu ? cellOptionsMenu.querySelector("[data-action=\"wrap\"]") : null;
+    const truncateBtn = cellOptionsMenu ? cellOptionsMenu.querySelector("[data-action=\"truncate\"]") : null;
+    const isWrap = cell.wrap === "wrap";
+    if (wrapBtn) wrapBtn.classList.toggle("active", isWrap);
+    if (truncateBtn) truncateBtn.classList.toggle("active", !isWrap);
+  }
+
+  function closeCellContextMenu() {
+    if (!cellContextMenu) return;
+    cellContextMenu.classList.remove("open");
+    cellContextMenu.setAttribute("aria-hidden", "true");
+    cellContextTarget = null;
+    cellContextPosition = null;
+    closeCellSubmenus();
+  }
+
+  function handleCellContextAction(action) {
+    if (!action) return;
+    if (action === "copy") copySelectionToClipboard();
+    if (action === "cut") cutSelectionToClipboard();
+    if (action === "paste") pasteSelectionFromClipboard();
+    if (action === "align-left") applyAlignment("left");
+    if (action === "align-center") applyAlignment("center");
+    if (action === "align-right") applyAlignment("right");
+    if (action === "wrap") applyWrapMode("wrap");
+    if (action === "truncate") applyWrapMode("truncate");
+    closeCellContextMenu();
+  }
+
+  function openSchemeContextMenu(event) {
+    if (!schemeContextMenu || !journalEl) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closePageSettings();
+    closePanelPopovers();
+    closeBreakTimerPanel();
+    closeSheetContextMenu();
+    closeCellContextMenu();
+    closeCellSubmenus();
+    closeTabsContextMenu();
+    closeCacheViewModal();
+    closeDiagnosticsModal();
+    schemeContextActive = true;
+    updateSchemeContextMenu();
+    schemeContextMenu.classList.add("open");
+    schemeContextMenu.setAttribute("aria-hidden", "false");
+    positionContextMenu(schemeContextMenu, event.clientX, event.clientY);
+  }
+
+  function updateSchemeContextMenu() {
+    if (!schemeContextMenu || !schemeTextColorInput) return;
+    const color = normalizeHexColor(journalColorEl.value) || "#d9dde7";
+    schemeTextColorInput.value = color;
+  }
+
+  function closeSchemeContextMenu() {
+    if (!schemeContextMenu) return;
+    schemeContextMenu.classList.remove("open");
+    schemeContextMenu.setAttribute("aria-hidden", "true");
+    schemeContextActive = false;
+  }
+
+  function handleSchemeContextAction(action) {
+    if (!action) return;
+    if (action === "copy") copyJournalSelection();
+    if (action === "cut") cutJournalSelection();
+    if (action === "paste") pasteTextToJournal();
+    closeSchemeContextMenu();
+  }
+
+  async function pasteSelectionFromClipboard() {
+    const thread = getActiveThread();
+    if (!thread) return;
+    if (!navigator.clipboard || !window.isSecureContext) {
+      alert("Paste is unavailable in this browser context.");
+      return;
+    }
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (err) {
+      alert("Failed to read clipboard.");
+      return;
+    }
+    const forceGrid = isLastSheetCopy(text);
+    const grid = parseClipboardGrid(text, forceGrid);
+    if (!grid.length) return;
+    if (grid.length === 1 && grid[0].length === 1) {
+      commitCellValue(thread, selectedCell.row, selectedCell.col, grid[0][0], true);
+      const target = sheetInputs[selectedCell.row] ? sheetInputs[selectedCell.row][selectedCell.col] : null;
+      if (target) target.value = grid[0][0];
+      formulaInput.value = grid[0][0];
+      return;
+    }
+    applyGridToSheet(thread, selectedCell.row, selectedCell.col, grid);
+  }
+
+  function getTextareaSelection(textarea) {
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    return {
+      start,
+      end,
+      text: textarea.value.slice(start, end)
+    };
+  }
+
+  function replaceTextareaSelection(textarea, replacement) {
+    const { start, end } = getTextareaSelection(textarea);
+    const value = textarea.value;
+    textarea.value = value.slice(0, start) + replacement + value.slice(end);
+    textarea.selectionStart = textarea.selectionEnd = start + replacement.length;
+  }
+
+  function copyJournalSelection() {
+    if (!journalEl) return;
+    const selection = getTextareaSelection(journalEl);
+    if (!selection.text) return;
+    copyTextToClipboard(selection.text, (success) => {
+      journalStatus.textContent = success ? "Copied" : "Copy failed";
+    });
+  }
+
+  function cutJournalSelection() {
+    if (!journalEl) return;
+    const selection = getTextareaSelection(journalEl);
+    if (!selection.text) return;
+    copyTextToClipboard(selection.text, (success) => {
+      journalStatus.textContent = success ? "Cut" : "Copy failed";
+    });
+    replaceTextareaSelection(journalEl, "");
+    journalEl.dispatchEvent(new Event("input"));
+  }
+
+  async function pasteTextToJournal() {
+    if (!journalEl) return;
+    if (!navigator.clipboard || !window.isSecureContext) {
+      alert("Paste is unavailable in this browser context.");
+      return;
+    }
+    let text = "";
+    try {
+      text = await navigator.clipboard.readText();
+    } catch (err) {
+      alert("Failed to read clipboard.");
+      return;
+    }
+    replaceTextareaSelection(journalEl, text);
+    journalEl.dispatchEvent(new Event("input"));
+  }
+
+  function getFormulaSelectionRange() {
+    const bounds = getSelectionBounds();
+    if (!bounds) return "";
+    if (bounds.rowStart === bounds.rowEnd && bounds.colStart === bounds.colEnd) return "";
+    const start = `${indexToCol(bounds.colStart)}${bounds.rowStart + 1}`;
+    const end = `${indexToCol(bounds.colEnd)}${bounds.rowEnd + 1}`;
+    if (start === end) return "";
+    return `${start}:${end}`;
+  }
+
+
+  function addFormulaAtSelection(formulaName) {
+    const thread = getActiveThread();
+    if (!thread) return;
+    const name = String(formulaName || "").trim().toUpperCase();
+    if (!name) return;
+    const range = getFormulaSelectionRange();
+    const formula = range ? `=${name}(${range})` : `=${name}()`;
+    commitCellValue(thread, selectedCell.row, selectedCell.col, formula, true);
+    focusCell(selectedCell.row, selectedCell.col);
+    formulaInput.focus();
+    const cursor = formula.length - 1;
+    formulaInput.setSelectionRange(cursor, cursor);
   }
 
   function addSheetRow() {
@@ -3769,6 +4512,7 @@
     const thread = getActiveThread();
     if (!thread) return;
     const text = buildSelectionText(thread);
+    lastSheetCopy = { text, isMulti: selectionIsMultiple() };
     copyTextToClipboard(text, (success) => {
       sheetStatus.textContent = success ? "Copied" : "Copy failed";
     });
@@ -3778,6 +4522,7 @@
     const thread = getActiveThread();
     if (!thread) return;
     const text = buildSelectionText(thread);
+    lastSheetCopy = { text, isMulti: selectionIsMultiple() };
     copyTextToClipboard(text, (success) => {
       sheetStatus.textContent = success ? "Cut" : "Copy failed";
     });
